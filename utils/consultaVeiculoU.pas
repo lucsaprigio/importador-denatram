@@ -1,0 +1,193 @@
+unit consultaVeiculoU;
+
+interface
+
+uses System.SysUtils, System.Variants, System.Classes, FireDAC.Comp.Client,
+     FireDAC.Stan.Param, System.JSON, Data.DB, FireDAC.DApt, REST.Json,
+     System.Net.HttpClient, System.Net.HttpClientComponent;
+
+type
+  TConsultaVeiculoThread = class(TThread)
+  protected
+    procedure Execute; override;
+    procedure AtualizarStatusVeiculo(cnpj: string);
+  end;
+
+implementation
+
+uses
+  Vcl.Dialogs, denatramU, fd_principalU, FDDenatramU, configU,
+  System.Net.URLClient;
+
+
+{ TConsultaVeiculoThread }
+
+procedure TConsultaVeiculoThread.AtualizarStatusVeiculo(cnpj: string);
+var
+  QryAtualizarVeiculo: TFDQuery;
+begin
+        QryAtualizarVeiculo := TFDQuery.Create(nil);
+        QryAtualizarVeiculo.Connection := dm_denatram.fd_denatram;
+
+        try
+          QryAtualizarVeiculo.SQL.Clear;
+
+          QryAtualizarVeiculo.SQL.Text   := 'UPDATE DB_VEICULOS SET STATUS = 1 WHERE CNPJ_EMPRESA = :cnpj';
+          QryAtualizarVeiculo.ParamByName('cnpj').AsString := cnpj;
+
+          QryAtualizarVeiculo.ExecSQL; // Utilizar o Exec quando não retornar resultados como INSERT, DELETE E UPDATE
+
+          QryAtualizarVeiculo.Connection.Commit;
+        except on E: Exception do
+        begin
+          TThread.Synchronize(nil,
+            procedure
+            begin
+              frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + E.Message);
+            end
+          );
+          end;
+        end;
+
+        QryAtualizarVeiculo.Free;
+end;
+
+procedure TConsultaVeiculoThread.Execute;
+var
+  Qry: TFDQuery;
+  Obj: TJSONObject;
+  JSONArr: TJSONArray;
+  DadosEndereco, numero: String;
+  PartesEndereco: TArray<string>;
+  Http: THTTPClient;
+  Response: IHTTPResponse;
+  Content: TStringStream;
+  i: Integer;
+  cnpj_empresa: String;
+  pessoa: string;
+  url: string;
+begin
+  inherited;
+   AppConfig  := TAppConfig.Create;
+
+   while not Terminated do
+    begin
+      Qry      := TFDQuery.Create(nil);
+      JSONArr := TJSONArray.Create;
+      Http := THTTPClient.Create;
+
+      try
+        Qry.Connection := dm_denatram.fd_denatram;
+        Qry.SQL.Text   := 'select CNPJ_EMPRESA, ' +
+              'CNPJ, RAZAO_SOCIAL, CODIGO, CEP, ENDERECO, PESSOA,' +
+              'BAIRRO, UF, CELULAR, CPF, TELEFONE, NOME_CIDADE, COMPLEMENTO from db_clientes WHERE STATUS = 0';
+        Qry.Open;   // Utilizar o Open quando for retornar resultados
+
+        TThread.Synchronize(nil,
+          procedure
+          begin
+            frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + 'Consultando clientes');
+          end
+        );
+
+        while not Qry.Eof do
+        begin
+            Obj := TJSONObject.Create;
+
+            DadosEndereco  := Qry.FieldByName('ENDERECO').AsString;
+            PartesEndereco := DadosEndereco.Split([',']);
+
+          if Length(PartesEndereco) > 1 then
+            numero := Trim(PartesEndereco[1])
+          else
+            numero := '0';
+
+            if ( Qry.FieldByName('PESSOA').AsString = 'J') then
+            begin
+               pessoa := Qry.FieldByName('CNPJ').AsString;
+            end
+            else begin
+               pessoa := Qry.FieldByName('CPF').AsString;
+            end;
+
+            Obj.AddPair('cnpj_empresa', Qry.FieldByName('CNPJ_EMPRESA').AsString);
+            Obj.AddPair('id', pessoa);
+            Obj.AddPair('tipoPessoa', Qry.FieldByName('PESSOA').AsString);
+            Obj.AddPair('razaoSocial', Qry.FieldByName('RAZAO_SOCIAL').AsString);
+            Obj.AddPair('cep', Qry.FieldByName('CEP').AsString);
+            Obj.AddPair('logradouro', Qry.FieldByName('ENDERECO').AsString);
+            Obj.AddPair('numero', numero);
+            Obj.AddPair('bairro', Qry.FieldByName('BAIRRO').AsString);
+            Obj.AddPair('cidade', Qry.FieldByName('NOME_CIDADE').AsString);
+            Obj.AddPair('uf', Qry.FieldByName('PESSOA').AsString);
+
+            JSONArr.AddElement(Obj);
+            Qry.Next;
+        end;
+
+        for I := 0 to JSONArr.Count - 1 do
+        begin
+          Obj := JSONArr.Items[i] as TJSONObject;
+
+          cnpj_empresa := Obj.GetValue<string>('cnpj_empresa');
+
+          url := (AppConfig.UrlRenave + cnpj_empresa + '/vehicle');
+
+
+
+          Content := TStringStream.Create(Obj.ToJSON, TEncoding.UTF8);
+
+          try
+             Content.Position := 0;
+
+             Http.CustomHeaders['Authorization'] := 'Bearer ' + AppConfig.ApiKey;
+             Http.CustomHeaders['Content-Type'] := 'application/json';
+
+             Obj.RemovePair('cnpj_empresa');
+
+             Response := Http.Post(url, Content);
+
+             if Response.StatusCode = 200 then
+               begin
+                 AtualizarStatusVeiculo(cnpj_empresa);
+
+                 TThread.Synchronize(nil,
+                  procedure
+                  begin
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                  end
+                );
+               end
+               else begin
+               TThread.Synchronize(nil,
+                  procedure
+                  begin
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                  end
+                );
+               end;
+          finally
+            Content.Free;
+          end;
+
+        Sleep(5000);
+        end;
+
+      except
+          on E: Exception do
+            TThread.Synchronize(nil,
+              procedure
+              begin
+                frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + E.Message);
+              end
+            );
+       end;
+        JSONArr.Free;
+        Qry.Free;
+        Http.Free;
+
+        Sleep(1000 * 60 * 60);
+    end;
+end;
+
+end.
