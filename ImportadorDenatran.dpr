@@ -1,12 +1,13 @@
-program ImportadorDenatram;
+program ImportadorDenatran;
 
 uses
   Vcl.Forms,
-  denatramU in 'denatramU.pas' {frmPrincipal},
+  denatranU in 'denatranU.pas' {frmPrincipal},
   consultaClienteU in 'utils\consultaClienteU.pas',
   FDDenatramU in 'data_modules\FDDenatramU.pas' {dm_denatram: TDataModule},
   fd_principalU in 'data_modules\fd_principalU.pas' {dm_principal: TDataModule},
-  configU in 'utils\configU.pas';
+  configU in 'utils\configU.pas',
+  consultaVeiculoU in 'utils\consultaVeiculoU.pas';
 
 {$R *.res}
 

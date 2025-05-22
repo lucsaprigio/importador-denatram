@@ -16,7 +16,7 @@ type
 implementation
 
 uses
-  Vcl.Dialogs, denatramU, fd_principalU, FDDenatramU, configU,
+  Vcl.Dialogs, denatranU, fd_principalU, FDDenatramU, configU,
   System.Net.URLClient;
 
 
@@ -55,16 +55,14 @@ end;
 procedure TConsultaVeiculoThread.Execute;
 var
   Qry: TFDQuery;
+  Con: TFDConnection;
   Obj: TJSONObject;
   JSONArr: TJSONArray;
-  DadosEndereco, numero: String;
-  PartesEndereco: TArray<string>;
   Http: THTTPClient;
   Response: IHTTPResponse;
   Content: TStringStream;
   i: Integer;
   cnpj_empresa: String;
-  pessoa: string;
   url: string;
 begin
   inherited;
@@ -73,20 +71,25 @@ begin
    while not Terminated do
     begin
       Qry      := TFDQuery.Create(nil);
+      Con      := TFDConnection.Create(nil);
       JSONArr := TJSONArray.Create;
       Http := THTTPClient.Create;
 
       try
-        Qry.Connection := dm_denatram.fd_denatram;
+        Con.Params.Assign(dm_denatram.fd_denatram.Params);
+        Con.LoginPrompt := False;
+        Con.Connected := True;
+
+        Qry.Connection := Con;
         Qry.SQL.Text   := 'select CNPJ_EMPRESA, ' +
-              'CNPJ, RAZAO_SOCIAL, CODIGO, CEP, ENDERECO, PESSOA,' +
-              'BAIRRO, UF, CELULAR, CPF, TELEFONE, NOME_CIDADE, COMPLEMENTO from db_clientes WHERE STATUS = 0';
+            'CODIGO, NOVO_VELHO, COALESCE(DESCRICAO, ''SEM DESCRICAO'') AS DESCRICAO, CHASSI, ANO_FAB, ANO_MODELO, PLACA, RENAVAM, STATUS ' +
+            'from DB_VEICULOS WHERE STATUS = 0';
         Qry.Open;   // Utilizar o Open quando for retornar resultados
 
         TThread.Synchronize(nil,
           procedure
           begin
-            frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + 'Consultando clientes');
+            frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + 'Consultando Veículos');
           end
         );
 
@@ -94,32 +97,14 @@ begin
         begin
             Obj := TJSONObject.Create;
 
-            DadosEndereco  := Qry.FieldByName('ENDERECO').AsString;
-            PartesEndereco := DadosEndereco.Split([',']);
-
-          if Length(PartesEndereco) > 1 then
-            numero := Trim(PartesEndereco[1])
-          else
-            numero := '0';
-
-            if ( Qry.FieldByName('PESSOA').AsString = 'J') then
-            begin
-               pessoa := Qry.FieldByName('CNPJ').AsString;
-            end
-            else begin
-               pessoa := Qry.FieldByName('CPF').AsString;
-            end;
-
             Obj.AddPair('cnpj_empresa', Qry.FieldByName('CNPJ_EMPRESA').AsString);
-            Obj.AddPair('id', pessoa);
-            Obj.AddPair('tipoPessoa', Qry.FieldByName('PESSOA').AsString);
-            Obj.AddPair('razaoSocial', Qry.FieldByName('RAZAO_SOCIAL').AsString);
-            Obj.AddPair('cep', Qry.FieldByName('CEP').AsString);
-            Obj.AddPair('logradouro', Qry.FieldByName('ENDERECO').AsString);
-            Obj.AddPair('numero', numero);
-            Obj.AddPair('bairro', Qry.FieldByName('BAIRRO').AsString);
-            Obj.AddPair('cidade', Qry.FieldByName('NOME_CIDADE').AsString);
-            Obj.AddPair('uf', Qry.FieldByName('PESSOA').AsString);
+            Obj.AddPair('tipoVeiculo', Qry.FieldByName('NOVO_VELHO').AsString);
+            Obj.AddPair('chassi', Qry.FieldByName('CHASSI').AsString);
+            Obj.AddPair('descricao', Qry.FieldByName('DESCRICAO').AsString);
+            Obj.AddPair('anoFabricacao', Qry.FieldByName('ANO_FAB').AsInteger);
+            Obj.AddPair('anoModelo', Qry.FieldByName('ANO_MODELO').AsInteger);
+            Obj.AddPair('placa', Qry.FieldByName('PLACA').AsString);
+            Obj.AddPair('renavam', Qry.FieldByName('RENAVAM').AsString);
 
             JSONArr.AddElement(Obj);
             Qry.Next;
@@ -133,12 +118,10 @@ begin
 
           url := (AppConfig.UrlRenave + cnpj_empresa + '/vehicle');
 
-
-
           Content := TStringStream.Create(Obj.ToJSON, TEncoding.UTF8);
 
           try
-             Content.Position := 0;
+             Content.Position := 0; // Para garamtir que todas as informãções do StringStream, vão para a requisição
 
              Http.CustomHeaders['Authorization'] := 'Bearer ' + AppConfig.ApiKey;
              Http.CustomHeaders['Content-Type'] := 'application/json';
@@ -154,7 +137,9 @@ begin
                  TThread.Synchronize(nil,
                   procedure
                   begin
-                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) +
+                    ' - [Veículo] - ' +
+                    ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
                   end
                 );
                end
@@ -162,7 +147,9 @@ begin
                TThread.Synchronize(nil,
                   procedure
                   begin
-                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) +
+                    ' - [Veículo] - ' +
+                    ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
                   end
                 );
                end;

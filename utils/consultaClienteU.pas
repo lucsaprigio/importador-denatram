@@ -16,7 +16,7 @@ type
 implementation
 
 uses
-  Vcl.Dialogs, denatramU, fd_principalU, FDDenatramU, configU,
+  Vcl.Dialogs, denatranU, fd_principalU, FDDenatramU, configU,
   System.Net.URLClient;
 
 { TAgendadorThread }
@@ -54,6 +54,7 @@ end;
 procedure TConsultaThread.Execute;
 var
   Qry: TFDQuery;
+  Con: TFDConnection;
   Obj: TJSONObject;
   JSONArr: TJSONArray;
   DadosEndereco, numero: String;
@@ -73,11 +74,16 @@ begin
     while not Terminated do
     begin
       Qry      := TFDQuery.Create(nil);
+      Con      := TFDConnection.Create(nil);
       JSONArr := TJSONArray.Create;
       Http := THTTPClient.Create;
 
       try
-        Qry.Connection := dm_denatram.fd_denatram;
+        Con.Params.Assign(dm_denatram.fd_denatram.Params);
+        Con.LoginPrompt := False;
+        Con.Connected := True;
+
+        Qry.Connection := Con;
         Qry.SQL.Text   := 'select CNPJ_EMPRESA, ' +
               'CNPJ, RAZAO_SOCIAL, CODIGO, CEP, ENDERECO, PESSOA,' +
               'BAIRRO, UF, CELULAR, CPF, TELEFONE, NOME_CIDADE, COMPLEMENTO from db_clientes WHERE STATUS = 0';
@@ -154,7 +160,9 @@ begin
                  TThread.Synchronize(nil,
                   procedure
                   begin
-                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) +
+                    ' - [Cliente] - ' + Response.StatusCode.ToString +
+                    ' - ' + Response.ContentAsString(TEncoding.UTF8));
                   end
                 );
                end
@@ -162,7 +170,9 @@ begin
                TThread.Synchronize(nil,
                   procedure
                   begin
-                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) + ' - ' + Response.StatusCode.ToString + Response.ContentAsString(TEncoding.UTF8));
+                    frmPrincipal.memHistorico.Lines.Add(FormatDateTime('[hh:nn:ss] ', Now) +
+                    ' - [Cliente] - ' + Response.StatusCode.ToString +
+                    ' - ' + Response.ContentAsString(TEncoding.UTF8));
                   end
                 );
                end;
@@ -183,6 +193,7 @@ begin
             );
        end;
         JSONArr.Free;
+        Con.Free;
         Qry.Free;
         Http.Free;
 

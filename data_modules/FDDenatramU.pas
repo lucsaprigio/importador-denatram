@@ -34,7 +34,7 @@ procedure Tdm_denatram.DataModuleCreate(Sender: TObject);
 begin
           try
             fd_denatram.Connected := False;
-            fd_denatram.Params.Values['Database'] := 'speedautomac.ddns.net:/database/Servicos/denatran.fdb';
+            fd_denatram.Params.Values['Database'] := '192.168.0.80:/database/Servicos/denatran.fdb';
             fd_denatram.Params.Values['Protocol'] := 'local';
             fd_denatram.LoginPrompt := False;
 
